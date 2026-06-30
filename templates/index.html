@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>شات سري وآمن</title>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socketio/4.0.1/socketio.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        header { background: #1e293b; padding: 15px; text-align: center; font-size: 1.2rem; font-weight: bold; border-bottom: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        #welcome-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 20px; text-align: center; gap: 20px; }
+        .btn { background: #2563eb; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer; transition: 0.2s; width: 100%; max-width: 280px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.2); }
+        .btn:hover { background: #1d4ed8; }
+        .btn-secondary { background: #475569; box-shadow: 0 4px 6px -1px rgba(71,85,105,0.2); }
+        .btn-secondary:hover { background: #334155; }
+        #chat-screen { display: none; flex-direction: column; flex: 1; height: 100%; overflow: hidden; }
+        #messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; background: #0f172a; }
+        .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; word-break: break-word; animation: fadeIn 0.3s ease; }
+        .msg.me { background: #2563eb; color: white; align-self: flex-start; border-bottom-right-radius: 2px; }
+        .msg.other { background: #334155; color: #f8fafc; align-self: flex-end; border-bottom-left-radius: 2px; }
+        .msg.system { background: rgba(30,41,59,0.7); color: #94a3b8; align-self: center; font-size: 0.85rem; text-align: center; max-width: 90%; border-radius: 20px; padding: 6px 16px; border: 1px solid #334155; }
+        #input-area { background: #1e293b; padding: 12px; display: flex; gap: 10px; align-items: center; border-top: 1px solid #334155; }
+        #message-input { flex: 1; background: #0f172a; border: 1px solid #334155; padding: 12px; border-radius: 8px; color: white; font-size: 1rem; outline: none; transition: 0.2s; }
+        #message-input:focus { border-color: #2563eb; }
+        #send-btn { background: #2563eb; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <header>🔒 شات مشفر وسري</header>
+
+    <!-- شاشة البداية -->
+    <div id="welcome-screen">
+        <h2 style="color: #60a5fa;">مرحباً بك في المحادثة الآمنة</h2>
+        <p style="color: #94a3b8; max-width: 400px; font-size: 0.95rem;">أنشئ غرفة جديدة وشارك الرابط مع صديقك، أو انضم لغرفة موجودة بالفعل للاستمتاع بشات مشفر يمسح كل شيء بمجرد الإغلاق.</p>
+        <button class="btn" onclick="createNewRoom()">إنشاء غرفة محادثة جديدة</button>
+        <button class="btn btn-secondary" onclick="joinExistingRoom()">الانضمام لغرفة الحالية</button>
+    </div>
+
+    <!-- شاشة الشات -->
+    <div id="chat-screen">
+        <div id="messages"></div>
+        <div id="input-area">
+            <input type="text" id="message-input" placeholder="اكتب رسالتك السرية هنا..." onkeypress="checkEnter(event)">
+            <button id="send-btn" onclick="sendMessage()">إرسال</button>
+        </div>
+    </div>
+
+    <script>
+        let socket = io();
+        let currentRoom = "";
+
+        // قراءة الـ Room ID من الرابط تلقائياً لو موجود
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomFromUrl = urlParams.get('room');
+        if (roomFromUrl) {
+            currentRoom = roomFromUrl;
+            startChat();
+        }
+
+        function createNewRoom() {
+            currentRoom = Math.random().toString(36).substring(2, 10);
+            const chatUrl = window.location.origin + window.location.pathname + '?room=' + currentRoom;
+            
+            Swal.fire({
+                title: 'تم إنشاء الغرفة بنجاح! 🎉',
+                html: `<p style="margin-bottom:15px; color:#64748b;">انسخ هذا الرابط وأرسله للطرف الآخر للدخول المباشر:</p>
+                       <input type="text" id="copy-url" value="${chatUrl}" readonly style="width:100%; padding:10px; text-align:center; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold; color:#1e293b;">`,
+                showCancelButton: true,
+                confirmButtonText: 'نسخ الرابط ودخول',
+                cancelButtonText: 'إلغاء',
+                preConfirm: () => {
+                    const copyText = document.getElementById("copy-url");
+                    copyText.select();
+                    document.execCommand("copy");
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.history.pushState({}, '', '?room=' + currentRoom);
+                    startChat();
+                }
+            });
+        }
+
+        function joinExistingRoom() {
+            Swal.fire({
+                title: 'الانضمام لغرفة',
+                input: 'text',
+                inputPlaceholder: 'أدخل كود الغرفة هنا...',
+                showCancelButton: true,
+                confirmButtonText: 'دخول',
+                cancelButtonText: 'إلغاء'
+            }).then((result) => {
+                if (result.value) {
+                    currentRoom = result.value;
+                    window.history.pushState({}, '', '?room=' + currentRoom);
+                    startChat();
+                }
+            });
+        }
+
+        function startChat() {
+            document.getElementById('welcome-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            
+            socket.emit('join', { room: currentRoom });
+            addSystemMessage("أنت داخل الغرفة السرية رقم: " + currentRoom);
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const msg = input.value.trim();
+            if (msg) {
+                socket.emit('send_message', { room: currentRoom, msg: msg, type: 'text' });
+                input.value = '';
+            }
+        }
+
+        function checkEnter(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        socket.on('receive_message', function(data) {
+            const messagesContainer = document.getElementById('messages');
+            const msgDiv = document.createElement('div');
+            
+            if (data.sender === socket.id) {
+                msgDiv.className = 'msg me';
+            } else {
+                msgDiv.className = 'msg other';
+            }
+            
+            msgDiv.innerText = data.msg;
+            messagesContainer.appendChild(msgDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        });
+
+        socket.on('system_message', function(data) {
+            addSystemMessage(data.msg);
+        });
+
+        function addSystemMessage(text) {
+            const messagesContainer = document.getElementById('messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'msg system';
+            msgDiv.innerText = text;
+            messagesContainer.appendChild(msgDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
